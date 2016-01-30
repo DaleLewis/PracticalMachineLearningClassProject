@@ -1,0 +1,117 @@
+---
+title: "Machine Learning Class Project"
+author: "L. D. Schroyer"
+date: "Saturday, January 30, 2016"
+output: html_document
+---
+
+##Introduction
+
+For this project, we are given data from accelerometers on the belt, forearm, arm, and dumbell of 6 research study participants. Our training data consists of accelerometer data and a label identifying the quality of the activity the participant was doing. Our testing data consists of accelerometer data without the identifying label. Our goal is to predict the labels for the test set observations.
+
+Below is the code I used when creating the model, estimating the out-of-sample error, and making predictions. I also include a description of each step of the process.
+
+#Data Exploration
+
+First we will read in the data.
+
+```{r}
+trainingrawdata <- read.csv(file="pml-training.csv", header=TRUE, as.is = TRUE, stringsAsFactors = FALSE, sep=',', na.strings=c('NA','','#DIV/0!'))
+testingrawdata <- read.csv(file="pml-testing.csv", header=TRUE, as.is = TRUE, stringsAsFactors = FALSE, sep=',', na.strings=c('NA','','#DIV/0!'))
+```
+
+Now we can do a quick summary to see what is contained in our data set using the summary command. This shows we have 160 variables many of which show little or no variance and some that are identification variables that we will not need for modeling purposes. This also shows that our classe variable is currently a character variable with no factor levels assigned.
+
+#Data PreProcessing
+
+To be able to use this data set efficiently in the model process we need to generate our feature, and  clean it of variables the won't benefit the modeling process and may in fact cause problems by overfitting our data.
+
+First we will create our feature by tranforming the classe variable into a factor to use in classification.
+
+```{r}
+trainingrawdata$classe <- as.factor(trainingrawdata$classe) 
+```
+
+Now lets remove any variables that show little or no variance. Since they do not vary, they will not help us classify the data for modeling.
+
+```{r}
+#load caret package to do the analysis
+require(caret)
+# remove variables with nearly zero variance
+nzv <- nearZeroVar(trainingrawdata,saveMetrics=T)
+#nzv
+allrawdata <- trainingrawdata[, nzv$nzv==FALSE]
+```
+
+Lets also remove all variables that are almost always missing (NA). Since the data is not avaialble and we have no basis to impute it, we will remove those variables from our modeling.
+
+```{r}
+# remove variables that are almost always NA
+mostlyNA <- sapply(allrawdata, function(x) mean(is.na(x))) > 0.95
+allrawdata <- allrawdata[, mostlyNA==FALSE]
+```
+
+
+Now lets remove those variables that are only used for identifcation purposes. Since we are not forecasting time data is not needed nor do we need to know the specific study participant that generated that data.
+
+```{r}
+# remove variables that don't make intuitive sense for prediction (X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp), which happen to be the first five variables
+allrawdata <- allrawdata[, -(1:5)]
+```
+
+This results in a reduction to 54 variables to use in our modeling efforts.
+
+#Model Building
+
+First we will split our training data set into two sets, one for training and one for cross validation to estimate our out of sample error.
+
+```{r}
+#now split into training and testing portions of the training data set
+set.seed(5846)
+index_train <- createDataPartition(y=allrawdata$classe, p=0.60, list=FALSE)
+data_train <- allrawdata[index_train,]
+data_xval <- allrawdata[-index_train,]
+dim(data_train); dim(data_xval)
+```
+
+
+Now lets check to ensure that we have a good dispersion of classes so our model will not be biased by the available data in our training set.
+
+```{r}
+#let's look at the distribution of classes
+require(lattice)
+barchart(table(data_train$classe))
+```
+
+Our distribution of classes seems to be pretty even so we can proceed to train our model. Since this is an obvious classification problem we will use random forests due to the high accuracy level of this type of model in classification applications.
+
+```{r}
+#first choice is random forest since this is a clasification problem
+require(randomForest)
+modfit <-train(classe~.,data=data_train,method="rf",trControl=trainControl(method = "cv",number = 4,allowParallel = TRUE,verboseIter = FALSE))
+```
+
+#Out of Sample Error Estimate by Cross Validation
+
+Now that we have a fully trained model we can estimate the model's out of sample error rate by cross validating against the testing set we created previously.
+
+```{r}
+#check the model by cross validation
+pred_rf <- predict(modfit,data_xval)
+cm_rf <- confusionMatrix(pred_rf,data_xval$classe)
+cm_rf
+```
+
+The output confusion matrix shows the model to be over 99% accurate in correctly classifying the data. Our sensitivity and specificity as also over 99% as are our positive and negative prediction values. This points to a very accurate model.
+
+#Final Model Validation
+
+As a final validation check of our model we will cross validate it against the twenty sample testing set provided. 
+
+```{r}
+#test against final test set provided
+FinalValidationTest <- predict(modfit, testingrawdata)
+FinalValidationTest
+```
+
+These values were submitted and found to be 100% correct. This confirms the accuracy of our predictive random forest model.
